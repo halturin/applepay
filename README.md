@@ -2,6 +2,13 @@
 
 ApplePay reference https://developer.apple.com/library/ios/documentation/PassKit/Reference/PaymentTokenJSON/PaymentTokenJSON.html
 
+## Apple's intermediate and root certificates
+
+```sh
+$ wget 'https://www.apple.com/certificateauthority/AppleAAICAG3.cer'
+$ wget 'https://www.apple.com/certificateauthority/AppleRootCA-G3.cer'
+```
+
 ## Install
 
 Installing library into your environment:
