@@ -1,8 +1,10 @@
+# a Python library for decrypting Apple Pay payment tokens.
+
 ApplePay reference https://developer.apple.com/library/ios/documentation/PassKit/Reference/PaymentTokenJSON/PaymentTokenJSON.html
 
 ## Install
 
-Add to your `Gemfile`:
+Installing library into your environment:
 
 ```python
 pip install applepay"
@@ -30,7 +32,7 @@ payment = applepay.Payment(payment_json)
 certificate_pem = File.read("mycert.pem")
 private_key_pem = File.read("private_key.pem")
 
-decrypted_json = token.decrypt(certificate_pem, private_key_pem)
+decrypted_json = payment.decrypt(certificate_pem, private_key_pem)
 
 # decrypted_json value example
 {
