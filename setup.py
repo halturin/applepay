@@ -6,7 +6,7 @@ def read(fname):
 
 setup(
     name = "applepay",
-    version = "0.1.0",
+    version = "0.2.0",
     author = "Taras Halturin",
     author_email = "halturin@gmail.com",
     description = ("a Python library for decrypting Apple Pay payment tokens."),

@@ -61,9 +61,9 @@ decrypted_json = payment.decrypt(payment_json['header']['ephemeralPublicKey'], p
 ## Testing
 
 ```sh
-$ python tests/applepay_test.py
-...
-5 tests, 18 assertions, 0 failures, 0 errors, 0 skips
+
+#FIXME
+
 ```
 
 ## Contributors
