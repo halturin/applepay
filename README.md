@@ -23,7 +23,7 @@ Step by step:
 
 
 ```python
-import "applepay"
+from applepay import payment as apple
 
 # payment_json value example:
 #
@@ -34,12 +34,14 @@ import "applepay"
 #          "transactionId":"<<HexifiedData>>"},
 #     "version":"EC_v1"}
 
-payment = applepay.Payment(payment_json)
 
-certificate_pem = File.read("mycert.pem")
-private_key_pem = File.read("private_key.pem")
+certificate_pem = open('merchant_cert.pem', 'rb').read()
+private_key_pem = open('merchant_private_key', 'rb').read()
 
-decrypted_json = payment.decrypt(certificate_pem, private_key_pem)
+payment = apple.Payment(certificate_pem, private_key_pem)
+
+decrypted_json = payment.decrypt(payment_json['header']['ephemeralPublicKey'], payment_json['data'])
+
 
 # decrypted_json value example
 #    {
