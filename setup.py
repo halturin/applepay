@@ -14,6 +14,9 @@ setup(
     keywords = "applepay payment tokens",
     url = "https://github.com/halturin/applepay",
     packages=['applepay', 'tests'],
+    install_requires=[
+        'cryptography',
+    ],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Topic :: Utilities",
