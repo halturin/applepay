@@ -20,22 +20,23 @@ AAI_CA_FILE = 'ca/AppleAAICAG3.cer'
 
 class Payment:
     def __init__(self, merc_ca_pem, private_key_pem, root_ca_der = None, aai_ca_der = None):
+        backend = default_backend()
         if root_ca_der == None:
-            self._root_ca = load_der_x509_certificate(open(ROOT_CA_FILE, 'rb').read(), default_backend())
+            self._root_ca = load_der_x509_certificate(open(ROOT_CA_FILE, 'rb').read(), backend)
         else:
-            self._root_ca = load_der_x509_certificate(root_ca_der)
+            self._root_ca = load_der_x509_certificate(root_ca_der, backend)
 
         if aai_ca_der == None:
-            self._aai_ca = load_der_x509_certificate(open(AAI_CA_FILE, 'rb').read(), default_backend())
+            self._aai_ca = load_der_x509_certificate(open(AAI_CA_FILE, 'rb').read(), backend)
         else:
-            self._aai_ca = load_der_x509_certificate(aai_ca_der)
+            self._aai_ca = load_der_x509_certificate(aai_ca_der, backend)
 
-        merc_ca = load_pem_x509_certificate(merc_ca_pem, default_backend())
+        merc_ca = load_pem_x509_certificate(merc_ca_pem, backend)
 
         self._validate_cert(merc_ca)
 
         self._merc_id = unhexlify(self._extract_merchant_id(merc_ca))
-        self._private_key = load_pem_private_key(private_key_pem, None, default_backend())
+        self._private_key = load_pem_private_key(private_key_pem, None, backend)
 
     def _validate_cert(self, merc_ca):
         pass
