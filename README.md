@@ -1,4 +1,4 @@
-# a Python library for decrypting Apple Pay payment tokens.
+# A Python library for decrypting Apple Pay payment tokens.
 
 ApplePay reference https://developer.apple.com/library/ios/documentation/PassKit/Reference/PaymentTokenJSON/PaymentTokenJSON.html
 
@@ -61,9 +61,7 @@ decrypted_json = payment.decrypt(payment_json['header']['ephemeralPublicKey'], p
 ## Testing
 
 ```sh
-
-#FIXME
-
+$ python setup.py test
 ```
 
 ## Contributors
