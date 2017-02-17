@@ -80,6 +80,9 @@ class Payment(object):
         :type: timedelta
         :return: False if the signing time exceeds the threshold, otherwise True
         :rtype: bool
+        :raises: AttributeError if no 'signingTime' attribute can be found,
+        indicating an invalid token. May also raise if signature data is in an
+        unexpected format, inconsistent with the CMS 'ContentInfo' object.
         """
         signing_time = payment_utils.retrieve_signature_signing_time(signature)
         return timedelta(0) <= (current_time - signing_time) <= threshold
