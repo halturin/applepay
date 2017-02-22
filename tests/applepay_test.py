@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 
 from pytz import utc
 
-from applepay import payment
 from applepay import utils as applepay_utils
 
 import utils as test_utils
@@ -33,7 +32,7 @@ def test_valid_signing_time():
     threshold = timedelta(hours=1)
 
     # when we attempt to validate the signing time against the threshold,
-    valid = payment.Payment.signing_time_is_valid(signature, current_time, threshold)
+    valid = applepay_utils.signing_time_is_valid(signature, current_time, threshold)
 
     # then the token should be considered valid.
     assert valid is True
@@ -51,7 +50,7 @@ def test_expired_signing_time():
     threshold = timedelta(days=1)
 
     # when we attempt to validate the signing time against the threshold,
-    valid = payment.Payment.signing_time_is_valid(signature, current_time, threshold)
+    valid = applepay_utils.signing_time_is_valid(signature, current_time, threshold)
 
     # then the token should be considered invalid.
     assert valid is False
@@ -69,7 +68,7 @@ def test_future_signing_time():
     threshold = timedelta(weeks=5)
 
     # when we attempt to validate the signing time against the threshold,
-    valid = payment.Payment.signing_time_is_valid(signature, current_time, threshold)
+    valid = applepay_utils.signing_time_is_valid(signature, current_time, threshold)
 
     # then the token should be considered invalid.
     assert valid is False
@@ -87,7 +86,7 @@ def test_signing_time_equals_current_time():
     threshold = timedelta(0)
 
     # when we attempt to validate the signing time against the threshold,
-    valid = payment.Payment.signing_time_is_valid(signature, current_time, threshold)
+    valid = applepay_utils.signing_time_is_valid(signature, current_time, threshold)
 
     # then the token should be considered valid.
     assert valid is True

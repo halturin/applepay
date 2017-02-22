@@ -1,4 +1,5 @@
 import base64
+from datetime import timedelta
 
 from asn1crypto import cms
 
@@ -27,3 +28,26 @@ def retrieve_signature_signing_time(signature):
             value = signed_attr['values']
             return value.native[0]  # datetime object, only item in the list.
     raise AttributeError('No signing_time attribute found in signature.')
+
+
+def signing_time_is_valid(signature, current_time, threshold):
+    """ Given a detached top-level CMS signature, validate the 'signingTime'
+    attribute against the current time and a time-delta threshold.
+
+    If the difference between the current time and the 'signingTime' exceeds
+    the threshold, the token should be considered invalid.
+
+    :param signature: Base64 encoded detached CMS signature data.
+    :type: str
+    :param current_time: Current system time to compare the token against.
+    :type: offset-aware datetime
+    :param threshold: Amount of time to consider the token valid.
+    :type: timedelta
+    :return: False if the signing time exceeds the threshold, otherwise True
+    :rtype: bool
+    :raises: AttributeError if no 'signingTime' attribute can be found,
+    indicating an invalid token. May also raise if signature data is in an
+    unexpected format, inconsistent with the CMS 'ContentInfo' object.
+    """
+    signing_time = retrieve_signature_signing_time(signature)
+    return timedelta(0) <= (current_time - signing_time) <= threshold

@@ -1,6 +1,5 @@
 from base64 import b64decode
 from binascii import unhexlify
-from datetime import timedelta
 from hashlib import sha256
 
 from cryptography.hazmat.backends import default_backend
@@ -9,8 +8,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.x509 import load_pem_x509_certificate, load_der_x509_certificate
-
-import utils as payment_utils
 
 
 OID_MERCHANT_ID = "1.2.840.113635.100.6.32"
@@ -63,29 +60,6 @@ class Payment(object):
         sha.update(b'\x0did-aes256-GCM' + b'Apple' + self._merc_id)
 
         return sha.digest()
-
-    @staticmethod
-    def signing_time_is_valid(signature, current_time, threshold):
-        """ Given a detached top-level CMS signature, validate the 'signingTime'
-        attribute against the current time and a time-delta threshold.
-
-        If the difference between the current time and the 'signingTime' exceeds
-        the threshold, the token should be considered invalid.
-
-        :param signature: Base64 encoded detached CMS signature data.
-        :type: str
-        :param current_time: Current system time to compare the token against.
-        :type: offset-aware datetime
-        :param threshold: Amount of time to consider the token valid.
-        :type: timedelta
-        :return: False if the signing time exceeds the threshold, otherwise True
-        :rtype: bool
-        :raises: AttributeError if no 'signingTime' attribute can be found,
-        indicating an invalid token. May also raise if signature data is in an
-        unexpected format, inconsistent with the CMS 'ContentInfo' object.
-        """
-        signing_time = payment_utils.retrieve_signature_signing_time(signature)
-        return timedelta(0) <= (current_time - signing_time) <= threshold
 
     def decrypt(self, ephemeral_public_key, cipher_data, transaction_id=None, application_data=''):
 
