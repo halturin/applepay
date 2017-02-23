@@ -1,15 +1,14 @@
+from base64 import b64decode
+from binascii import unhexlify
+from hashlib import sha256
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import ciphers, hashes
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.primitives.serialization import load_der_public_key
-from cryptography.hazmat.primitives.asymmetric import ec
-
 from cryptography.x509 import load_pem_x509_certificate, load_der_x509_certificate
-from cryptography.hazmat.primitives import ciphers, hashes
-from cryptography.hazmat.backends import default_backend
 
-
-from binascii import unhexlify
-from base64 import b64decode
-from hashlib import sha256
 
 OID_MERCHANT_ID = "1.2.840.113635.100.6.32"
 OID_LEAF_CERTIFICATE = "1.2.840.113635.100.6.29"
