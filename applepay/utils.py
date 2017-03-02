@@ -1,7 +1,11 @@
 import base64
 from datetime import timedelta
+import logging
 
 from asn1crypto import cms
+
+
+logger = logging.getLogger('applepay.utils')
 
 
 def retrieve_signature_signing_time(signature):
@@ -50,4 +54,15 @@ def signing_time_is_valid(signature, current_time, threshold):
     unexpected format, inconsistent with the CMS 'ContentInfo' object.
     """
     signing_time = retrieve_signature_signing_time(signature)
-    return timedelta(0) <= (current_time - signing_time) <= threshold
+    is_valid = timedelta(0) <= (current_time - signing_time) <= threshold
+    logger.debug((
+        "Signing time is {is_valid}. "
+        "Signing time: {signing_time:%Y-%m-%d %H:%M:%S %Z}, "
+        "Current time: {current_time:%Y-%m-%d %H:%M:%S %Z}, "
+        "Threshold: {threshold}.").format(
+        is_valid='valid' if is_valid else 'invalid',
+        signing_time=signing_time,
+        threshold=threshold,
+        current_time=current_time)
+    )
+    return is_valid
