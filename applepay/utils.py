@@ -5,7 +5,7 @@ import logging
 from asn1crypto import cms
 
 
-logger = logging.getLogger('applepay.utils')
+logger = logging.getLogger(__name__)
 
 
 def retrieve_signature_signing_time(signature):
