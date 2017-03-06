@@ -62,7 +62,7 @@ def signing_time_is_valid(signature, current_time, threshold):
         "Threshold: {threshold}.").format(
         is_valid='valid' if is_valid else 'invalid',
         signing_time=signing_time,
-        threshold=threshold,
-        current_time=current_time)
+        current_time=current_time,
+        threshold=threshold)
     )
     return is_valid
