@@ -1,8 +1,29 @@
+"""
+TODO put link to apple pay docs
+
+# ApplePayDocs:
+    talk about it
+
+
+
+"""
+
+
 import base64
+import binascii
 from datetime import timedelta
+from functools import partial
+from itertools import ifilter
 import logging
 
 from asn1crypto import cms
+from asn1crypto.parser import emit
+from ecdsa import VerifyingKey, BadSignatureError, curves
+from ecdsa.util import sigdecode_der
+import hashlib
+from OpenSSL import crypto
+
+import payment
 
 
 logger = logging.getLogger(__name__)
@@ -66,3 +87,266 @@ def signing_time_is_valid(signature, current_time, threshold):
         threshold=threshold)
     )
     return is_valid
+
+
+def valid_chain_of_trust(root_cert_der, intermediate_cert_der, leaf_cert_der):
+    """Validate the chain of trust for the provided der encoded root, intermediate,
+    and leaf certificates.
+
+    From Apple Docs
+       Part C: Ensure that there is a valid X.509 chain of trust from the
+       signature to the root CA. Specifically, ensure that the signature
+       was created using the private key corresponding to the leaf certificate,
+       that the leaf certificate is signed by the intermediate CA, and that the
+       intermediate CA is signed by the Apple Root CA - G3.
+
+    Args:
+        root_cert_der (String): der-encoded root cert
+        intermediate_cert_der (String): der-encoded intermediate cert
+        leaf_cert_der (String): der-encoded leaf cert
+    Returns:
+        Boolean: If there is a valid chain of trust for the provided certificates
+    """
+    root_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, root_cert_der)
+
+    # Only add certs we TRUST!
+    store = crypto.X509Store()
+    store.add_cert(root_cert)
+
+    # validate the intermediate cert against root
+    intermediate_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, intermediate_cert_der)
+    store_ctx = crypto.X509StoreContext(store, intermediate_cert)
+    # throws 'X509StoreContextError' when cert is invalid.
+    try:
+        store_ctx.verify_certificate()
+    except crypto.X509StoreContextError:
+        logger.warning("Intermediate cert not signed by the Apple Root CA - G3.")
+        return False
+    else:
+        store.add_cert(intermediate_cert)
+
+    # validate the leaf cert against intermediate.
+    leaf_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, leaf_cert_der)
+    store_ctx = crypto.X509StoreContext(store, leaf_cert)
+    # throws 'X509StoreContextError' when cert is invalid.
+    try:
+        store_ctx.verify_certificate()
+    except crypto.X509StoreContextError:
+        logger.warning("Leaf cert not signed by the intermediate cert.")
+        return False
+    else:
+        store.add_cert(leaf_cert)
+
+    return True
+
+
+def get_leaf_and_intermediate_certs(candidate_certificates):
+    """Iterate over the provided candidate_certificates
+    to find the leaf and intermediate certificates based
+    on their OIDs.
+
+    Args:
+        candidate_certificate (asn1crypto.cms.CertificateSet): Iterable of
+            candidate certificates
+    Returns:
+        tuple: The leaf and intermediate cert.  Each will default to None
+            if not found.
+    """
+    found_leaf_cert = None
+    found_intermediate_cert = None
+    for certificate in candidate_certificates:
+        candidate_cert = certificate.chosen
+
+        leaf_cert_ext = get_first_from_iterable(
+            filter_func=lambda ext: ext['extn_id'].native == payment.OID_LEAF_CERTIFICATE,
+            iterable=candidate_cert['tbs_certificate']['extensions']
+        )
+        if leaf_cert_ext:
+            found_leaf_cert = candidate_cert
+            continue
+
+        intermediate_cert_ext = get_first_from_iterable(
+            filter_func=lambda ext: ext['extn_id'].native == payment.OID_INTERMEDIATE_CERTIFICATE,
+            iterable=candidate_cert['tbs_certificate']['extensions']
+        )
+        if intermediate_cert_ext:
+            found_intermediate_cert = candidate_cert
+            continue
+
+        if found_leaf_cert and found_intermediate_cert:
+            break
+
+    return found_leaf_cert, found_intermediate_cert
+
+
+def get_provided_data(token):
+    """ TODO
+    Build the message to validate against"""
+    ephemeral_public_key = token['header']['ephemeralPublicKey']
+    payload = token['data']
+    transaction_id = token['header']['transactionId']
+    application_data = token['header'].get('applicationData')  # optional
+
+    concatenated_data = base64.b64decode(ephemeral_public_key)
+    concatenated_data += base64.b64decode(payload)
+    concatenated_data += binascii.unhexlify(transaction_id)
+    if application_data:
+        concatenated_data += binascii.unhexlify(application_data)
+
+    return concatenated_data
+
+
+def validate_message_digest(message_digest, hashed_data):
+    """ TODO"""
+    if hashed_data != message_digest:
+        logger.warning("Message digest does not match provided data.")
+        return False
+
+    return True
+
+
+def get_signed_data(signed_attrs):
+    """TODO"""
+    # We need these values to emit the BER
+    # encoded version of the header + content.
+    # These values are not exposed on SignerInfo
+    # so we get them from the parent class.
+    class_ = super(signed_attrs.__class__, signed_attrs).class_
+    method = super(signed_attrs.__class__, signed_attrs).method
+    tag = super(signed_attrs.__class__, signed_attrs).tag
+
+    return emit(class_, method, tag, signed_attrs.contents)
+
+
+def get_public_key_bytes(leaf_cert):
+    """TODO
+
+    We expect the public key to be in the uncompressed
+    format described here: https://tools.ietf.org/html/rfc5480#section-2.2
+    This means the first byte must be "\x04" otherwise consider
+    the public key not usable.public_key_bytes
+
+    Return the public key value minus the byte prefix for use with
+    the ecdsa.keys.VerifyingKey class
+    """
+    public_key_bytes = leaf_cert.public_key['public_key'].native
+
+    if not public_key_bytes.startswith("\x04"):
+        logger.warning("Expected uncompressed public key bytes.")
+        return None
+
+    return public_key_bytes[1:]
+
+
+def get_first_from_iterable(filter_func, iterable):
+    """TODO"""
+    filtered_stuff = ifilter(filter_func, iterable)
+    return next(filtered_stuff, None)
+
+
+def get_callable_hashfunc_by_name(name, data):
+    """TODO
+    Return a callable hashfunc by name
+    using the hashlib.new constructor
+    """
+    hashfunc = hashlib.new(name)
+    hashfunc.update(data)
+    return hashfunc
+
+
+def signature_is_valid(token):
+    """TODO write me
+
+    #apple_spec: https://developer.apple.com/library/content/documentation/PassKit/Reference/PaymentTokenJSON/PaymentTokenJSON.html#//apple_ref/doc/uid/TP40014929-CH8-SW2
+    #java_lib: https://github.com/Zooz/Apple-Pay-Signature-Verification
+    """
+    # We only bother to validate EC_v1 at this time.  RSA is only used
+    # for transactions from China and is not supported at this time.
+    if token['version'] != 'EC_v1':
+        logger.warning("Unsupported version {}".format(token['version']))
+        return False
+
+    # extract and decode the signature object
+    # into a CMS object
+    signature = token['signature']
+    signature_data = base64.b64decode(signature)
+    content_info = cms.ContentInfo.load(signature_data)
+    signed_data = content_info['content']
+    certificates = signed_data['certificates']
+
+    # there should only be 2 certificates present
+    if len(certificates) != 2:
+        logger.warning("Expected 2 certificates, found {}".format(len(certificates)))
+        return False
+
+    leaf_cert, intermediate_cert = get_leaf_and_intermediate_certs(certificates)
+
+    if not leaf_cert:
+        logger.warning("Leaf Certificate OID not found")
+        return False
+
+    if not intermediate_cert:
+        logger.warning("Intermediate certificate OID not found")
+        return False
+
+    root_der = open(payment.ROOT_CA_FILE, 'r').read()
+
+    # pass the der-encoded representation of the certs
+    if not valid_chain_of_trust(root_der, intermediate_cert.dump(), leaf_cert.dump()):
+        return False
+
+    # Build the signer information from the signer that matches the leaf cert
+    signer = get_first_from_iterable(
+        filter_func=lambda signer: signer['sid'].chosen['serial_number'].native == leaf_cert.serial_number,
+        iterable=signed_data['signer_infos']
+    )
+
+    if not signer:
+        logger.warning("No signature found for the leaf cert.")
+        return False
+
+    # Use the signed attrs to verify the data is from who it says its from
+    signed_attrs = signer['signed_attrs']
+
+    message_digest_attr = get_first_from_iterable(
+        filter_func=lambda signed_attr: signed_attr['type'].dotted == payment.OID_MESSAGE_DIGEST,
+        iterable=signed_attrs
+    )
+
+    if not message_digest_attr:
+        logger.warning("No message digest found for the leaf cert.")
+        return False
+
+    message_digest = message_digest_attr['values'][0].native
+
+    data = get_provided_data(token)
+
+    # build the hashfunc from the leaf_cert's defined algorithm
+    hashfunc = partial(get_callable_hashfunc_by_name, leaf_cert.hash_algo)
+
+    hashed_data = hashfunc(data).digest()
+
+    if not validate_message_digest(message_digest, hashed_data):
+        return False
+
+    signed_data = get_signed_data(signed_attrs)
+    public_key_bytes = get_public_key_bytes(leaf_cert)
+
+    if not public_key_bytes:
+        return False
+
+    sig_octets = signer['signature'].native  # the signature to verify
+    # The signature is der-encoded, so use sigdecode_der to decode
+    # it later on
+    sigdecode = sigdecode_der
+
+    vk = VerifyingKey.from_string(public_key_bytes, curve=curves.NIST256p, hashfunc=hashfunc)
+
+    # verify that the signature matches the signed data
+    try:
+        vk.verify(sig_octets, signed_data, hashfunc=hashfunc, sigdecode=sigdecode)
+    except BadSignatureError:
+        logger.warning("Invalid signature.")
+        return False
+
+    return True

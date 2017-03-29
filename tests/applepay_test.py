@@ -4,7 +4,7 @@ import logging
 import pytest
 from pytz import utc
 
-from applepay import utils as applepay_utils
+from applepay import payment, utils as applepay_utils
 
 import utils as test_utils
 
@@ -12,6 +12,18 @@ import utils as test_utils
 @pytest.fixture(scope='session')
 def token_fixture():
     return test_utils.load_json_fixture('tests/fixtures/token.json')
+
+
+@pytest.fixture(scope='session')
+def private_key_fixture():
+    with open('tests/fixtures/private_key.pem', 'r') as f:
+        return f.read()
+
+
+@pytest.fixture(scope='session')
+def certificate_fixture():
+    with open('tests/fixtures/certificate.pem', 'r') as f:
+        return f.read()
 
 
 def test_retrieve_signature_signing_time(token_fixture):
@@ -126,3 +138,9 @@ def test_invalid_signing_time_data_is_logged(token_fixture, caplog):
     assert len(records) == 1
     assert records[0].name == 'applepay.utils'
     assert records[0].message == 'Signing time is invalid. Signing time: 2014-10-27 19:51:43 UTC+00:00, Current time: 2010-01-02 05:22:13 UTC, Threshold: 1:00:00.'
+
+
+def test_signature_is_valid(token_fixture):
+    """Test that a token known to be valid has a valid
+    signature"""
+    assert applepay_utils.signature_is_valid(token_fixture)
