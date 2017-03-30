@@ -202,7 +202,7 @@ def get_payment_data(token):
     return concatenated_data
 
 
-def get_signed_data(signed_attrs):
+def get_ber_encoded_signed_attributes(signed_attrs):
     """Get the BER-encoded signed attributes.
 
     class_, method, and tag are needed to emit the BER
@@ -322,17 +322,17 @@ def verify_signature(token):
         return False
 
     # Build the signer information from the signer that matches the leaf cert
-    signer = get_first_from_iterable(
+    signer_info = get_first_from_iterable(
         filter_func=lambda signer: signer['sid'].chosen['serial_number'].native == leaf_cert.serial_number,
         iterable=signed_data['signer_infos']
     )
 
-    if not signer:
+    if not signer_info:
         logger.warning("No signature found for the leaf cert.")
         return False
 
     # Use the signed attrs to verify the data is from who it says its from
-    signed_attrs = signer['signed_attrs']
+    signed_attrs = signer_info['signed_attrs']
 
     message_digest_attr = get_first_from_iterable(
         filter_func=lambda signed_attr: signed_attr['type'].dotted == payment.OID_MESSAGE_DIGEST,
@@ -356,13 +356,13 @@ def verify_signature(token):
         logger.warning("Message digest does not match provided data.")
         return False
 
-    signed_data = get_signed_data(signed_attrs)
+    signed_attrs_ber = get_ber_encoded_signed_attributes(signed_attrs)
     public_key_point = remove_ec_point_prefix(leaf_cert.public_key['public_key'].native)
 
     if not public_key_point:
         return False
 
-    sig_octets = signer['signature'].native  # the signature to verify
+    sig_octets = signer_info['signature'].native  # the signature to verify
     # The signature is der-encoded, so use sigdecode_der to decode
     # it later on
     sigdecode = sigdecode_der
@@ -371,7 +371,7 @@ def verify_signature(token):
 
     # verify that the signature matches the signed data
     try:
-        vk.verify(sig_octets, signed_data, hashfunc=hashfunc, sigdecode=sigdecode)
+        vk.verify(sig_octets, signed_attrs_ber, hashfunc=hashfunc, sigdecode=sigdecode)
     except BadSignatureError:
         logger.warning("Invalid signature.")
         return False
