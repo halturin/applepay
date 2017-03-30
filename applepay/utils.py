@@ -1,11 +1,9 @@
 """
-TODO put link to apple pay docs
+The utils in this module are used to verify and parse a decoded
+apple pay token.  See the #ApplePaySpec below for more documentation
+and guidelines on the steps taken here.
 
-# ApplePayDocs:
-    talk about it
-
-
-
+#ApplePaySpec: https://developer.apple.com/library/content/documentation/PassKit/Reference/PaymentTokenJSON/PaymentTokenJSON.html#//apple_ref/doc/uid/TP40014929-CH8-SW2
 """
 
 
@@ -93,7 +91,7 @@ def valid_chain_of_trust(root_cert_der, intermediate_cert_der, leaf_cert_der):
     """Validate the chain of trust for the provided der encoded root, intermediate,
     and leaf certificates.
 
-    From Apple Docs
+    From: #ApplePaySpec
        Part C: Ensure that there is a valid X.509 chain of trust from the
        signature to the root CA. Specifically, ensure that the signature
        was created using the private key corresponding to the leaf certificate,
@@ -179,9 +177,17 @@ def get_leaf_and_intermediate_certs(candidate_certificates):
     return found_leaf_cert, found_intermediate_cert
 
 
-def get_provided_data(token):
-    """ TODO
-    Build the message to validate against"""
+def get_payment_data(token):
+    """Build a string of the concatenated payment
+    data provided in the apple pay token, including
+    the ephemeral public key, paylod, transaction id
+    and the optional application data.
+
+    Args:
+        token (dict): the decoded apple pay token
+    Returns:
+        string: the concatenated payment data
+    """
     ephemeral_public_key = token['header']['ephemeralPublicKey']
     payload = token['data']
     transaction_id = token['header']['transactionId']
@@ -196,21 +202,21 @@ def get_provided_data(token):
     return concatenated_data
 
 
-def validate_message_digest(message_digest, hashed_data):
-    """ TODO"""
-    if hashed_data != message_digest:
-        logger.warning("Message digest does not match provided data.")
-        return False
-
-    return True
-
-
 def get_signed_data(signed_attrs):
-    """TODO"""
-    # We need these values to emit the BER
-    # encoded version of the header + content.
-    # These values are not exposed on SignerInfo
-    # so we get them from the parent class.
+    """Get the BER-encoded signed attributes.
+
+    class_, method, and tag are needed to emit the BER
+    encoded version of the header + content.
+    These values are not exposed on SignerInfo
+    so we get them from the parent class.
+
+    Args:
+        signed_attrs (asn1crypto.cms.CMSAttributes): The signed
+            attributes from the signature
+    Returns:
+        string: The BER-encoded signed attributes as a string
+            of bytes
+    """
     class_ = super(signed_attrs.__class__, signed_attrs).class_
     method = super(signed_attrs.__class__, signed_attrs).method
     tag = super(signed_attrs.__class__, signed_attrs).tag
@@ -218,48 +224,68 @@ def get_signed_data(signed_attrs):
     return emit(class_, method, tag, signed_attrs.contents)
 
 
-def get_public_key_bytes(leaf_cert):
-    """TODO
+def remove_ec_point_prefix(point):
+    """Remove the prefix from the uncompressed ec point.
 
-    We expect the public key to be in the uncompressed
+    We expect the point to be in the uncompressed
     format described here: https://tools.ietf.org/html/rfc5480#section-2.2
     This means the first byte must be "\x04" otherwise consider
-    the public key not usable.public_key_bytes
+    the public key not usable.  ecdsa.keys.VerifyingKey does not
+    handle this first byte so its chopped off before turning the public
+    key bytes.
 
-    Return the public key value minus the byte prefix for use with
-    the ecdsa.keys.VerifyingKey class
+    Args:
+        point (string): The uncompressed byte string of an EC Point
+    Returns:
+        string: The EC point byte string minus the uncompressed
+            byte prefix indicator
     """
-    public_key_bytes = leaf_cert.public_key['public_key'].native
-
-    if not public_key_bytes.startswith("\x04"):
-        logger.warning("Expected uncompressed public key bytes.")
+    if not point.startswith("\x04"):
+        logger.warning("Expected uncompressed EC point.")
         return None
 
-    return public_key_bytes[1:]
+    return point[1:]
 
 
 def get_first_from_iterable(filter_func, iterable):
-    """TODO"""
+    """Get the first filtered item from an iterable.
+
+    Args:
+        filter_func (callable): the function to filter on
+        iterable (iterable): the iterable to filter on
+    Returns:
+        object: the first filtered item from iterable or None
+            if no items matching the filter are found
+    """
     filtered_stuff = ifilter(filter_func, iterable)
     return next(filtered_stuff, None)
 
 
-def get_callable_hashfunc_by_name(name, data):
-    """TODO
-    Return a callable hashfunc by name
-    using the hashlib.new constructor
+def get_hashfunc_by_name(name, data):
+    """
+    Get a callable hashfunc by name.
+
+    This function can be used directly or with functools.partial, for example:
+
+    >>> hashfunc = functools.partial(get_hashfunc_by_name, 'sha256')
+    >>> hashfunc('sir robin').digest()
+
+    Args:
+        name (string): The string name of the desired algorithm
+        data (buffer): The buffer to hash
+    Returns:
+        callable: The callable hash function of the provided
+            algorithm updated with the data to be hashed
     """
     hashfunc = hashlib.new(name)
     hashfunc.update(data)
     return hashfunc
 
 
-def signature_is_valid(token):
-    """TODO write me
+def verify_signature(token):
+    """Verify the signature within an apple pay token according to
+    the #ApplePaySpec documentation."""
 
-    #apple_spec: https://developer.apple.com/library/content/documentation/PassKit/Reference/PaymentTokenJSON/PaymentTokenJSON.html#//apple_ref/doc/uid/TP40014929-CH8-SW2
-    #java_lib: https://github.com/Zooz/Apple-Pay-Signature-Verification
-    """
     # We only bother to validate EC_v1 at this time.  RSA is only used
     # for transactions from China and is not supported at this time.
     if token['version'] != 'EC_v1':
@@ -319,20 +345,21 @@ def signature_is_valid(token):
 
     message_digest = message_digest_attr['values'][0].native
 
-    data = get_provided_data(token)
+    data = get_payment_data(token)
 
     # build the hashfunc from the leaf_cert's defined algorithm
-    hashfunc = partial(get_callable_hashfunc_by_name, leaf_cert.hash_algo)
+    hashfunc = partial(get_hashfunc_by_name, leaf_cert.hash_algo)
 
     hashed_data = hashfunc(data).digest()
 
-    if not validate_message_digest(message_digest, hashed_data):
+    if hashed_data != message_digest:
+        logger.warning("Message digest does not match provided data.")
         return False
 
     signed_data = get_signed_data(signed_attrs)
-    public_key_bytes = get_public_key_bytes(leaf_cert)
+    public_key_point = remove_ec_point_prefix(leaf_cert.public_key['public_key'].native)
 
-    if not public_key_bytes:
+    if not public_key_point:
         return False
 
     sig_octets = signer['signature'].native  # the signature to verify
@@ -340,7 +367,7 @@ def signature_is_valid(token):
     # it later on
     sigdecode = sigdecode_der
 
-    vk = VerifyingKey.from_string(public_key_bytes, curve=curves.NIST256p, hashfunc=hashfunc)
+    vk = VerifyingKey.from_string(public_key_point, curve=curves.NIST256p, hashfunc=hashfunc)
 
     # verify that the signature matches the signed data
     try:
