@@ -9,7 +9,8 @@ and guidelines on the steps taken here.
 
 import base64
 import binascii
-from datetime import timedelta
+from datetime import timedelta, datetime
+from pytz import utc
 from functools import partial
 from itertools import ifilter
 import logging
@@ -29,11 +30,9 @@ logger = logging.getLogger(__name__)
 
 def retrieve_signature_signing_time(signature):
     """ Return the 'signingTime' CMS attribute from the detached PKCS signature.
-
     This parsing depends on the structure of 'ContentInfo' objects defined in
     RFC-5652 (specifically the inner OID 1.2.840.113549.1.9.5):
       https://tools.ietf.org/html/rfc5652#section-11.3
-
     :param signature: Base64 encoded signature data (of a 'ContentInfo' object).
     :type: str
     :return: A datetime object representing the inner 'signingTime' object.
@@ -56,10 +55,8 @@ def retrieve_signature_signing_time(signature):
 def signing_time_is_valid(signature, current_time, threshold):
     """ Given a detached top-level CMS signature, validate the 'signingTime'
     attribute against the current time and a time-delta threshold.
-
     If the difference between the current time and the 'signingTime' exceeds
     the threshold, the token should be considered invalid.
-
     :param signature: Base64 encoded detached CMS signature data.
     :type: str
     :param current_time: Current system time to compare the token against.
@@ -73,6 +70,24 @@ def signing_time_is_valid(signature, current_time, threshold):
     unexpected format, inconsistent with the CMS 'ContentInfo' object.
     """
     signing_time = retrieve_signature_signing_time(signature)
+    return valid_signing_time(signing_time, current_time, threshold)
+
+
+def valid_signing_time(signing_time, current_time, threshold):
+    """ Validate that the signing time occured within the current time minus
+    the threshold and the current time.
+
+    Args:
+        signing_time (offset-aware datetime): Offset-aware signing time to
+            validate.
+        current_time (offset-aware datetime): Offset-aware current system time
+            to compare the token against.
+        threshold (datetime.timedelta): Amount of time to consider the token
+            valid.
+    Returns:
+        boolean: indicates if the signing time falls within the defined range
+            or not.
+    """
     is_valid = timedelta(0) <= (current_time - signing_time) <= threshold
     logger.debug((
         "Signing time is {is_valid}. "
@@ -282,11 +297,20 @@ def get_hashfunc_by_name(name, data):
     return hashfunc
 
 
-def verify_signature(token):
+def verify_signature(token, threshold=None):
     """Verify the signature within an apple pay token according to
-    the #ApplePaySpec documentation."""
+    the #ApplePaySpec documentation.
 
-    # We only bother to validate EC_v1 at this time.  RSA is only used
+    Args:
+        token (dict): the PKPaymentToken object defined within the #ApplePaySpec
+    Kwargs:
+        threshold (timedelta, None): Amount of time to consider the token valid.
+            No validation will be performed if a treshold is not provided
+    Returns:
+        boolean: Indicates if the signature is valid or not
+    """
+
+    # We only bother to validate EC_v1.  RSA is only used
     # for transactions from China and is not supported at this time.
     if token['version'] != 'EC_v1':
         logger.warning("Unsupported version {}".format(token['version']))
@@ -331,8 +355,20 @@ def verify_signature(token):
         logger.warning("No signature found for the leaf cert.")
         return False
 
-    # Use the signed attrs to verify the data is from who it says its from
+    # Use the signed attrs to verify the data was signed within the threshold
+    # provided and is from who it says its from
     signed_attrs = signer_info['signed_attrs']
+
+    # only check the signing time if a threshold was provided
+    if threshold:
+        singing_time_attr = get_first_from_iterable(
+            filter_func=lambda signed_attr: signed_attr['type'].dotted == payment.OID_SIGNING_TIME,
+            iterable=signed_attrs
+        )
+
+        if not valid_signing_time(singing_time_attr['values'][0].native, datetime.now(utc), threshold):
+            logger.warning("Signing time outside of threshold.")
+            return False
 
     message_digest_attr = get_first_from_iterable(
         filter_func=lambda signed_attr: signed_attr['type'].dotted == payment.OID_MESSAGE_DIGEST,

@@ -77,7 +77,7 @@ def test_retrieve_signature_signing_time(token_fixture):
     assert signing_time == expected_time
 
 
-def test_valid_signing_time(token_fixture):
+def test_signing_time_is_valid(token_fixture):
     # Given a detached CMS signature in the token,
     signature = token_fixture['signature']
 
@@ -94,7 +94,7 @@ def test_valid_signing_time(token_fixture):
     assert valid is True
 
 
-def test_expired_signing_time(token_fixture):
+def test_expired_signing_time_is_invalid(token_fixture):
     # Given a detached CMS signature in the token,
     signature = token_fixture['signature']
 
@@ -111,7 +111,7 @@ def test_expired_signing_time(token_fixture):
     assert valid is False
 
 
-def test_future_signing_time(token_fixture):
+def test_future_signing_time_is_invalid(token_fixture):
     # Given a detached CMS signature in the token,
     signature = token_fixture['signature']
 
@@ -128,7 +128,7 @@ def test_future_signing_time(token_fixture):
     assert valid is False
 
 
-def test_signing_time_equals_current_time(token_fixture):
+def test_signing_time_equals_current_time_is_valid(token_fixture):
     # Given a detached CMS signature in the token,
     signature = token_fixture['signature']
 
@@ -145,44 +145,126 @@ def test_signing_time_equals_current_time(token_fixture):
     assert valid is True
 
 
-def test_valid_signing_time_data_is_logged(token_fixture, caplog):
-    # Given: a valid signature for a current time and threshold
-    signature = token_fixture['signature']
-    current_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
+def test_valid_signing_time():
+    # Given an offset-aware signing time)
+    signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
+
+    # and a current time exactly one hour past the signing time,
+    current_time = signing_time + timedelta(hours=1)
+
+    # and a time-delta threshold of one hour,
+    threshold = timedelta(hours=1)
+
+    # when we attempt to validate the signing time against the threshold,
+    valid = applepay_utils.valid_signing_time(signing_time, current_time, threshold)
+
+    # then the token shosuld be considered valid.
+    assert valid is True
+
+
+def test_expired_signing_time():
+    # Given an offset-aware signing time)
+    signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
+
+    # and a current time well past the signing time,
+    current_time = signing_time + timedelta(days=100)
+
+    # and a time-delta threshold of only one day,
+    threshold = timedelta(days=1)
+
+    # when we attempt to validate the signing time against the threshold,
+    valid = applepay_utils.valid_signing_time(signing_time, current_time, threshold)
+
+    # then the token should be considered invalid.
+    assert valid is False
+
+
+def test_future_signing_time():
+    # Given an offset-aware signing time)
+    signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
+
+    # and a current time which is well before the signing time,
+    current_time = signing_time - timedelta(weeks=10)
+
+    # and a time-delta threshold of five weeks,
+    threshold = timedelta(weeks=5)
+
+    # when we attempt to validate the signing time against the threshold,
+    valid = applepay_utils.valid_signing_time(signing_time, current_time, threshold)
+
+    # then the token should be considered invalid.
+    assert valid is False
+
+
+def test_signing_time_equals_current_time():
+    # Given an offset-aware signing time)
+    signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
+
+    # and a current time that exactly matches the signing time,
+    current_time = signing_time
+
+    # and a time-delta of zero,
+    threshold = timedelta(0)
+
+    # when we attempt to validate the signing time against the threshold,
+    valid = applepay_utils.valid_signing_time(signing_time, current_time, threshold)
+
+    # then the token should be considered valid.
+    assert valid is True
+
+
+def test_valid_signing_time_data_is_logged(caplog):
+    # Given: a valid signing time
+    signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
+    current_time = signing_time + timedelta(minutes=5)
     threshold = timedelta(hours=1)
 
     # When we attempt to validate the signing time against the threshold,
     with caplog.atLevel(logging.DEBUG):
-        applepay_utils.signing_time_is_valid(signature, current_time, threshold)
+        valid = applepay_utils.valid_signing_time(signing_time, current_time, threshold)
+
+    # Then the signign time is valid
+    assert valid is True
 
     # Then a new debug log is captured
-    records = caplog.records()
+    # filter on DEBUG log records only
+    records = filter(lambda log_record: log_record.levelno == logging.DEBUG, caplog.records())
     assert len(records) == 1
     assert records[0].name == 'applepay.utils'
-    assert records[0].message == 'Signing time is valid. Signing time: 2014-10-27 19:51:43 UTC+00:00, Current time: 2014-10-27 20:51:43 UTC, Threshold: 1:00:00.'
+    assert records[0].message == 'Signing time is valid. Signing time: 2014-10-27 20:51:43 UTC, Current time: 2014-10-27 20:56:43 UTC, Threshold: 1:00:00.'
 
 
-def test_invalid_signing_time_data_is_logged(token_fixture, caplog):
-    # Given: a invalid signature for a current time and threshold
-    signature = token_fixture['signature']
-    current_time = datetime(2010, 1, 2, 5, 22, 13, tzinfo=utc)
+def test_invalid_signing_time_data_is_logged(caplog):
+    # Given: an invalid signing time
+    signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
+    current_time = signing_time + timedelta(hours=5)
     threshold = timedelta(hours=1)
 
     # When we attempt to validate the signing time against the threshold,
     with caplog.atLevel(logging.DEBUG):
-        applepay_utils.signing_time_is_valid(signature, current_time, threshold)
+        valid = applepay_utils.valid_signing_time(signing_time, current_time, threshold)
+
+    # Then the signing time is not valid
+    assert valid is False
 
     # Then a new debug log is captured
-    records = caplog.records()
+    # filter on DEBUG log records only
+    records = filter(lambda log_record: log_record.levelno == logging.DEBUG, caplog.records())
     assert len(records) == 1
     assert records[0].name == 'applepay.utils'
-    assert records[0].message == 'Signing time is invalid. Signing time: 2014-10-27 19:51:43 UTC+00:00, Current time: 2010-01-02 05:22:13 UTC, Threshold: 1:00:00.'
+    assert records[0].message == 'Signing time is invalid. Signing time: 2014-10-27 20:51:43 UTC, Current time: 2014-10-28 01:51:43 UTC, Threshold: 1:00:00.'
 
 
 def test_verify_signature(token_fixture):
     """Test that a token known to be valid has a valid
     signature"""
     assert applepay_utils.verify_signature(token_fixture)
+
+
+def test_verify_signature_with_threshold(token_fixture):
+    """Test that a token known to be valid has a valid
+    signature and the signing time is within the provided threshold"""
+    assert applepay_utils.verify_signature(token_fixture, threshold=timedelta(days=1000))
 
 
 def test_valid_chain_of_trust(certificates_der_fixture):
@@ -466,3 +548,4 @@ def test_unknown_hash_algoritm_not_support():
     with pytest.raises(ValueError):
         # Then a ValueError is raised
         applepay_utils.get_hashfunc_by_name(name, '')
+
