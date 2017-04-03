@@ -22,31 +22,35 @@ def token_fixture():
 
 
 @pytest.fixture(scope='session')
-def private_key_fixture():
-    with open('tests/fixtures/private_key.pem', 'r') as f:
-        return f.read()
-
-
-@pytest.fixture(scope='session')
-def certificate_fixture():
-    with open('tests/fixtures/certificate.pem', 'r') as f:
-        return f.read()
-
-
-@pytest.fixture(scope='session')
 def root_der_fixture():
     return open(payment.ROOT_CA_FILE, 'r').read()
 
 
 @pytest.fixture(scope='session')
-def candidate_certificates_fixture(token_fixture):
+def signed_data_fixture(token_fixture):
     """Returns the certificates from the apple pay token."""
     signature = token_fixture['signature']
     signature_data = base64.b64decode(signature)
     content_info = cms.ContentInfo.load(signature_data)
     signed_data = content_info['content']
 
-    return signed_data['certificates']
+    return signed_data
+
+
+@pytest.fixture(scope='session')
+def signed_attributes_fixture(signed_data_fixture, certificates_fixture):
+    leaf_cert, _ = certificates_fixture
+    signer_info = applepay_utils.get_first_from_iterable(
+        filter_func=lambda signer: signer['sid'].chosen['serial_number'].native == leaf_cert.serial_number,
+        iterable=signed_data_fixture['signer_infos']
+    )
+    return signer_info['signed_attrs']
+
+
+@pytest.fixture(scope='session')
+def candidate_certificates_fixture(signed_data_fixture):
+    """Returns the certificates from the apple pay token."""
+    return signed_data_fixture['certificates']
 
 
 @pytest.fixture(scope='session')
@@ -439,9 +443,16 @@ def test_get_payment_data_includes_application_data():
     assert expected_payment_data == payment_data
 
 
-@pytest.mark.skipif(True, reason='Write me!')
-def test_get_signed_data(token_fixture):
-    pass
+def test_get_ber_encoded_signed_attributes(signed_attributes_fixture):
+    # Given: some signed attributes
+    # from the signed_attributes_fixture
+
+    # When the ber-encoded attributes are retrieved
+    signed_attrs_ber = applepay_utils.get_ber_encoded_signed_attributes(signed_attributes_fixture)
+
+    # Then the result is the expected value
+    expected_ber_attributes = '1i0\x18\x06\t*\x86H\x86\xf7\r\x01\t\x031\x0b\x06\t*\x86H\x86\xf7\r\x01\x07\x010\x1c\x06\t*\x86H\x86\xf7\r\x01\t\x051\x0f\x17\r141027195143Z0/\x06\t*\x86H\x86\xf7\r\x01\t\x041"\x04 {M_{\x87\xb5\xfb\n\x11\x9d\xa5w\xa3\xc6\xd9/\xbb\xe6L\xb1\x03\xb2v_M\n\xbe\x0f\xb1\x98\x8er'
+    assert expected_ber_attributes == signed_attrs_ber
 
 
 def test_remove_ec_point_prefix(certificates_fixture):
