@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="applepay",
-    version="0.3.1",
+    version="0.4.0",
     author="Taras Halturin",
     author_email="halturin@gmail.com",
     description=("A Python library for decrypting Apple Pay payment tokens."),
