@@ -560,3 +560,46 @@ def test_unknown_hash_algoritm_not_support():
         # Then a ValueError is raised
         applepay_utils.get_hashfunc_by_name(name, '')
 
+
+def test_message_digest_valid(signed_attributes_fixture, token_fixture):
+    # Given signed attributes
+    signed_attrs = signed_attributes_fixture
+
+    # Given a payment data from the same token
+    # hashed via the sha256 hashfunc
+    hashed_payment_data = hashlib.sha256(applepay_utils.get_payment_data(token_fixture)).digest()
+
+    # When the message digest is validated
+    is_valid = applepay_utils.validate_message_digest(signed_attrs, hashed_payment_data)
+
+    # Then the message digest is valid
+    assert is_valid is True
+
+
+def test_missing_message_digest(token_fixture):
+    # Given some signed attrs that are missing the message digest
+    signed_attrs = []
+
+    # Given a payment data from the same token
+    # hashed via the sha256 hashfunc
+    hashed_payment_data = hashlib.sha256(applepay_utils.get_payment_data(token_fixture)).digest()
+
+    # When the message digest is validated
+    is_valid = applepay_utils.validate_message_digest(signed_attrs, hashed_payment_data)
+
+    # Then the message digest is not valid
+    assert is_valid is False
+
+
+def test_mismatched_payment_data(signed_attributes_fixture):
+    # Given some signed attrs
+    signed_attrs = signed_attributes_fixture
+
+    # Given a payment data object that will not match
+    hashed_payment_data = hashlib.sha256('sir robin').digest()
+
+    # When the message digest is validated
+    is_valid = applepay_utils.validate_message_digest(signed_attrs, hashed_payment_data)
+
+    # Then the message digest is not valid
+    assert is_valid is False

@@ -1,25 +1,24 @@
 """
-The utils in this module are used to verify and parse a decoded
-apple pay token.  See the #ApplePaySpec below for more documentation
+The utilites in this module are used to verify and parse an apple pay token.  The
+utilities assume the token has already be base64 decoded and dumped from json into a
+python dictionary.  See the #ApplePaySpec below for more documentation
 and guidelines on the steps taken here.
 
 #ApplePaySpec: https://developer.apple.com/library/content/documentation/PassKit/Reference/PaymentTokenJSON/PaymentTokenJSON.html#//apple_ref/doc/uid/TP40014929-CH8-SW2
 """
-
-
 import base64
 import binascii
 from datetime import timedelta, datetime
-from pytz import utc
 from functools import partial
 from itertools import ifilter
+import hashlib
 import logging
 
 from asn1crypto import cms
 from asn1crypto.parser import emit
 from ecdsa import VerifyingKey, BadSignatureError, curves
 from ecdsa.util import sigdecode_der
-import hashlib
+from pytz import utc
 from OpenSSL import crypto
 
 import payment
@@ -33,6 +32,10 @@ def retrieve_signature_signing_time(signature):
     This parsing depends on the structure of 'ContentInfo' objects defined in
     RFC-5652 (specifically the inner OID 1.2.840.113549.1.9.5):
       https://tools.ietf.org/html/rfc5652#section-11.3
+
+    This function is deprecated. Use of `verify_signature` with an optional threshold
+    is preferred.
+
     :param signature: Base64 encoded signature data (of a 'ContentInfo' object).
     :type: str
     :return: A datetime object representing the inner 'signingTime' object.
@@ -57,6 +60,10 @@ def signing_time_is_valid(signature, current_time, threshold):
     attribute against the current time and a time-delta threshold.
     If the difference between the current time and the 'signingTime' exceeds
     the threshold, the token should be considered invalid.
+
+    This function is deprecated. Use of `verify_signature` with an optional threshold
+    is preferred.
+
     :param signature: Base64 encoded detached CMS signature data.
     :type: str
     :param current_time: Current system time to compare the token against.
@@ -74,7 +81,7 @@ def signing_time_is_valid(signature, current_time, threshold):
 
 
 def valid_signing_time(signing_time, current_time, threshold):
-    """ Validate that the signing time occured within the current time minus
+    """ Validate that the signing time occurred within the current time minus
     the threshold and the current time.
 
     Args:
@@ -114,15 +121,15 @@ def valid_chain_of_trust(root_cert_der, intermediate_cert_der, leaf_cert_der):
        intermediate CA is signed by the Apple Root CA - G3.
 
     Args:
-        root_cert_der (String): der-encoded root cert
-        intermediate_cert_der (String): der-encoded intermediate cert
-        leaf_cert_der (String): der-encoded leaf cert
+        root_cert_der (str): der-encoded root cert
+        intermediate_cert_der (str): der-encoded intermediate cert
+        leaf_cert_der (str): der-encoded leaf cert
     Returns:
         Boolean: If there is a valid chain of trust for the provided certificates
     """
     root_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, root_cert_der)
 
-    # Only add certs we TRUST!
+    # Only add certs we trust, starting with the implicitly trusted root cert.
     store = crypto.X509Store()
     store.add_cert(root_cert)
 
@@ -159,7 +166,7 @@ def get_leaf_and_intermediate_certs(candidate_certificates):
     on their OIDs.
 
     Args:
-        candidate_certificate (asn1crypto.cms.CertificateSet): Iterable of
+        candidate_certificate (asn1crypto.cms.CertificateSet): Unordered iterable of
             candidate certificates
     Returns:
         tuple: The leaf and intermediate cert.  Each will default to None
@@ -168,6 +175,9 @@ def get_leaf_and_intermediate_certs(candidate_certificates):
     found_leaf_cert = None
     found_intermediate_cert = None
     for certificate in candidate_certificates:
+        if found_leaf_cert and found_intermediate_cert:
+            break
+
         candidate_cert = certificate.chosen
 
         leaf_cert_ext = get_first_from_iterable(
@@ -186,22 +196,22 @@ def get_leaf_and_intermediate_certs(candidate_certificates):
             found_intermediate_cert = candidate_cert
             continue
 
-        if found_leaf_cert and found_intermediate_cert:
-            break
-
     return found_leaf_cert, found_intermediate_cert
 
 
 def get_payment_data(token):
     """Build a string of the concatenated payment
     data provided in the apple pay token, including
-    the ephemeral public key, paylod, transaction id
+    the ephemeral public key, payload, transaction id
     and the optional application data.
+
+    This assumes the provided token contains an ECDSA
+    signature.  RSA is not supported.
 
     Args:
         token (dict): the decoded apple pay token
     Returns:
-        string: the concatenated payment data
+        str: the concatenated payment data
     """
     ephemeral_public_key = token['header']['ephemeralPublicKey']
     payload = token['data']
@@ -229,7 +239,7 @@ def get_ber_encoded_signed_attributes(signed_attrs):
         signed_attrs (asn1crypto.cms.CMSAttributes): The signed
             attributes from the signature
     Returns:
-        string: The BER-encoded signed attributes as a string
+        str: The BER-encoded signed attributes as a string
             of bytes
     """
     class_ = super(signed_attrs.__class__, signed_attrs).class_
@@ -250,9 +260,9 @@ def remove_ec_point_prefix(point):
     key bytes.
 
     Args:
-        point (string): The uncompressed byte string of an EC Point
+        point (str): The uncompressed byte string of an EC Point
     Returns:
-        string: The EC point byte string minus the uncompressed
+        str: The EC point byte string minus the uncompressed
             byte prefix indicator
     """
     if not point.startswith("\x04"):
@@ -272,8 +282,8 @@ def get_first_from_iterable(filter_func, iterable):
         object: the first filtered item from iterable or None
             if no items matching the filter are found
     """
-    filtered_stuff = ifilter(filter_func, iterable)
-    return next(filtered_stuff, None)
+    filtered = ifilter(filter_func, iterable)
+    return next(filtered, None)
 
 
 def get_hashfunc_by_name(name, data):
@@ -286,7 +296,7 @@ def get_hashfunc_by_name(name, data):
     >>> hashfunc('sir robin').digest()
 
     Args:
-        name (string): The string name of the desired algorithm
+        name (str): The string name of the desired algorithm
         data (buffer): The buffer to hash
     Returns:
         callable: The callable hash function of the provided
@@ -297,6 +307,37 @@ def get_hashfunc_by_name(name, data):
     return hashfunc
 
 
+def validate_message_digest(signed_attrs, hashed_payment_data):
+    """Validate the message_digest matches the provided payment.
+
+    Args:
+        signed_attrs (asn1crypto.cms.CMSAttributes): The signed
+            attributes from the signature
+        payment_data (str): the hashed payment data to validate
+            against
+    Returns:
+        boolean: True if the message digest matches the hashed
+            payment data, otherwise False.
+
+    """
+    message_digest_attr = get_first_from_iterable(
+        filter_func=lambda signed_attr: signed_attr['type'].dotted == payment.OID_MESSAGE_DIGEST,
+        iterable=signed_attrs
+    )
+
+    if not message_digest_attr:
+        logger.warning("No message digest found for the leaf cert.")
+        return False
+
+    message_digest = message_digest_attr['values'][0].native
+
+    if hashed_payment_data != message_digest:
+        logger.warning("Message digest does not match provided data.")
+        return False
+
+    return True
+
+
 def verify_signature(token, threshold=None):
     """Verify the signature within an apple pay token according to
     the #ApplePaySpec documentation.
@@ -305,7 +346,7 @@ def verify_signature(token, threshold=None):
         token (dict): the PKPaymentToken object defined within the #ApplePaySpec
     Kwargs:
         threshold (timedelta, None): Amount of time to consider the token valid.
-            No validation will be performed if a treshold is not provided
+            No validation will be performed if a threshold is not provided
     Returns:
         boolean: Indicates if the signature is valid or not
     """
@@ -316,15 +357,14 @@ def verify_signature(token, threshold=None):
         logger.warning("Unsupported version {}".format(token['version']))
         return False
 
-    # extract and decode the signature object
-    # into a CMS object
+    # Extract and decode the signature object into a CMS object.
     signature = token['signature']
     signature_data = base64.b64decode(signature)
     content_info = cms.ContentInfo.load(signature_data)
     signed_data = content_info['content']
     certificates = signed_data['certificates']
 
-    # there should only be 2 certificates present
+    # There should be exactly 2 certificates present.
     if len(certificates) != 2:
         logger.warning("Expected 2 certificates, found {}".format(len(certificates)))
         return False
@@ -340,72 +380,50 @@ def verify_signature(token, threshold=None):
         return False
 
     root_der = open(payment.ROOT_CA_FILE, 'r').read()
-
-    # pass the der-encoded representation of the certs
+    # Pass the der-encoded representation of the certs.
     if not valid_chain_of_trust(root_der, intermediate_cert.dump(), leaf_cert.dump()):
         return False
 
-    # Build the signer information from the signer that matches the leaf cert
+    # Build the signer information from the signer that matches the leaf cert.
     signer_info = get_first_from_iterable(
         filter_func=lambda signer: signer['sid'].chosen['serial_number'].native == leaf_cert.serial_number,
         iterable=signed_data['signer_infos']
     )
-
     if not signer_info:
         logger.warning("No signature found for the leaf cert.")
         return False
 
     # Use the signed attrs to verify the data was signed within the threshold
-    # provided and is from who it says its from
+    # provided and is from who it says its from.
     signed_attrs = signer_info['signed_attrs']
 
-    # only check the signing time if a threshold was provided
+    # Only check the signing time if a threshold was provided.
     if threshold:
-        singing_time_attr = get_first_from_iterable(
+        signing_time_attr = get_first_from_iterable(
             filter_func=lambda signed_attr: signed_attr['type'].dotted == payment.OID_SIGNING_TIME,
             iterable=signed_attrs
         )
 
-        if not valid_signing_time(singing_time_attr['values'][0].native, datetime.now(utc), threshold):
+        if not valid_signing_time(signing_time_attr['values'][0].native, datetime.now(utc), threshold):
             logger.warning("Signing time outside of threshold.")
             return False
 
-    message_digest_attr = get_first_from_iterable(
-        filter_func=lambda signed_attr: signed_attr['type'].dotted == payment.OID_MESSAGE_DIGEST,
-        iterable=signed_attrs
-    )
-
-    if not message_digest_attr:
-        logger.warning("No message digest found for the leaf cert.")
-        return False
-
-    message_digest = message_digest_attr['values'][0].native
-
-    data = get_payment_data(token)
-
-    # build the hashfunc from the leaf_cert's defined algorithm
+    payment_data = get_payment_data(token)
+    # Build the hashfunc from the leaf_cert's defined algorithm.
     hashfunc = partial(get_hashfunc_by_name, leaf_cert.hash_algo)
-
-    hashed_data = hashfunc(data).digest()
-
-    if hashed_data != message_digest:
-        logger.warning("Message digest does not match provided data.")
+    hashed_payemnt_data = hashfunc(payment_data).digest()
+    if not validate_message_digest(signed_attrs, hashed_payemnt_data):
         return False
 
     signed_attrs_ber = get_ber_encoded_signed_attributes(signed_attrs)
     public_key_point = remove_ec_point_prefix(leaf_cert.public_key['public_key'].native)
-
     if not public_key_point:
         return False
 
-    sig_octets = signer_info['signature'].native  # the signature to verify
-    # The signature is der-encoded, so use sigdecode_der to decode
-    # it later on
-    sigdecode = sigdecode_der
-
+    sigdecode = sigdecode_der  # The signature is der-encoded
+    sig_octets = signer_info['signature'].native  # The actual signature to verify
     vk = VerifyingKey.from_string(public_key_point, curve=curves.NIST256p, hashfunc=hashfunc)
-
-    # verify that the signature matches the signed data
+    # Verify that the signature matches the signed data.
     try:
         vk.verify(sig_octets, signed_attrs_ber, hashfunc=hashfunc, sigdecode=sigdecode)
     except BadSignatureError:
