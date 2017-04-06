@@ -8,6 +8,7 @@ import logging
 
 
 from asn1crypto import cms
+from freezegun import freeze_time
 import pytest
 from pytz import utc
 
@@ -23,7 +24,8 @@ def token_fixture():
 
 @pytest.fixture(scope='session')
 def root_der_fixture():
-    return open(payment.ROOT_CA_FILE, 'r').read()
+    with open(payment.ROOT_CA_FILE, 'r') as root_ca:
+        return root_ca.read()
 
 
 @pytest.fixture(scope='session')
@@ -35,6 +37,13 @@ def signed_data_fixture(token_fixture):
     signed_data = content_info['content']
 
     return signed_data
+
+
+@pytest.fixture(scope='session')
+def certificates_fixture(candidate_certificates_fixture):
+    """Returns a tuple of valid der-encoded root, intermeidate
+    and leaf certificates"""
+    return applepay_utils.get_leaf_and_intermediate_certs(candidate_certificates_fixture)
 
 
 @pytest.fixture(scope='session')
@@ -51,13 +60,6 @@ def signed_attributes_fixture(signed_data_fixture, certificates_fixture):
 def candidate_certificates_fixture(signed_data_fixture):
     """Returns the certificates from the apple pay token."""
     return signed_data_fixture['certificates']
-
-
-@pytest.fixture(scope='session')
-def certificates_fixture(candidate_certificates_fixture):
-    """Returns a tuple of valid der-encoded root, intermeidate
-    and leaf certificates"""
-    return applepay_utils.get_leaf_and_intermediate_certs(candidate_certificates_fixture)
 
 
 @pytest.fixture(scope='session')
@@ -150,7 +152,7 @@ def test_signing_time_equals_current_time_is_valid(token_fixture):
 
 
 def test_valid_signing_time():
-    # Given an offset-aware signing time)
+    # Given an timezone-aware signing time
     signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
 
     # and a current time exactly one hour past the signing time,
@@ -167,7 +169,7 @@ def test_valid_signing_time():
 
 
 def test_expired_signing_time():
-    # Given an offset-aware signing time)
+    # Given an timezone-aware signing time
     signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
 
     # and a current time well past the signing time,
@@ -184,7 +186,7 @@ def test_expired_signing_time():
 
 
 def test_future_signing_time():
-    # Given an offset-aware signing time)
+    # Given an timezone-aware signing time
     signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
 
     # and a current time which is well before the signing time,
@@ -201,7 +203,7 @@ def test_future_signing_time():
 
 
 def test_signing_time_equals_current_time():
-    # Given an offset-aware signing time)
+    # Given an timezone-aware signing time
     signing_time = datetime(2014, 10, 27, 20, 51, 43, tzinfo=utc)
 
     # and a current time that exactly matches the signing time,
@@ -262,13 +264,18 @@ def test_invalid_signing_time_data_is_logged(caplog):
 def test_verify_signature(token_fixture):
     """Test that a token known to be valid has a valid
     signature"""
-    assert applepay_utils.verify_signature(token_fixture)
+    assert applepay_utils.verify_signature(token_fixture) is True
 
 
 def test_verify_signature_with_threshold(token_fixture):
     """Test that a token known to be valid has a valid
     signature and the signing time is within the provided threshold"""
-    assert applepay_utils.verify_signature(token_fixture, threshold=timedelta(days=1000))
+    with freeze_time("2017-04-06 23:20:50'", tz_offset=0):
+        valid_signature = applepay_utils.verify_signature(
+            token_fixture, threshold=timedelta(days=1000)
+        )
+
+    assert valid_signature is True
 
 
 def test_valid_chain_of_trust(certificates_der_fixture):
@@ -468,13 +475,13 @@ def test_remove_ec_point_prefix(certificates_fixture):
 
 
 def test_remove_ec_point_prefix_finds_unexpected_format(certificates_fixture):
-    # Given a string that is not an uncompressed EC point
-    point = 'not.a.point'
+    # Given a point that is not in the uncompressed format
+    point = '\xc2\x15w\xed\xeb\xd6\xc7\xb2!\x8fh\xddp\x90\xa1!\x8d\xc7\xb0\xbdo,(=\x84`\x95\xd9J\xf4\xa5A\x1b\x83B\x0e\xd8\x11\xf3@~\x833\x1f\x1cT\xc3\xf7\xeb2 \xd6\xba\xd5\xd4\xef\xf4\x92\x89\x89>|\x0f\x13'
 
     # When we remove the ec point prefix from the point string
     public_key_bytes = applepay_utils.remove_ec_point_prefix(point)
 
-    # Then no bytes are returned due to the malformed point
+    # Then no bytes are returned due to the point not being uncompressed
     assert not public_key_bytes
 
 
@@ -535,20 +542,6 @@ def test_get_hashfunc_by_name():
 
     # The digest of the hashfunc is the same as the built-in algorithm
     assert hashlib.sha256(data).digest() == hashfunc.digest()
-
-
-def test_get_partial_hashfunc_by_name():
-    # Given a hashing algorithm
-    name = 'sha256'
-
-    # Given some data to hash
-    data = 'sir robin'
-
-    # When a hashfunc is partially created with the name
-    hashfunc = partial(applepay_utils.get_hashfunc_by_name, name)
-
-    # The digest of the hashfunc is the same as the built-in algorithm
-    assert hashlib.sha256(data).digest() == hashfunc(data).digest()
 
 
 def test_unknown_hash_algoritm_not_support():

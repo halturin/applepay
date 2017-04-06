@@ -85,9 +85,9 @@ def valid_signing_time(signing_time, current_time, threshold):
     the threshold and the current time.
 
     Args:
-        signing_time (offset-aware datetime): Offset-aware signing time to
+        signing_time (timezone-aware datetime): Signing time to
             validate.
-        current_time (offset-aware datetime): Offset-aware current system time
+        current_time (timezone-aware datetime): Current system time
             to compare the token against.
         threshold (datetime.timedelta): Amount of time to consider the token
             valid.
