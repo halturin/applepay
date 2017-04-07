@@ -1,8 +1,7 @@
 """
 The utilites in this module are used to verify and parse an apple pay token.  The
-utilities assume the token has already be base64 decoded and dumped from json into a
-python dictionary.  See the #ApplePaySpec below for more documentation
-and guidelines on the steps taken here.
+utilities assume the token is a python dictionary.  See the #ApplePaySpec below for
+more documentation and guidelines on the steps taken here.
 
 #ApplePaySpec: https://developer.apple.com/library/content/documentation/PassKit/Reference/PaymentTokenJSON/PaymentTokenJSON.html#//apple_ref/doc/uid/TP40014929-CH8-SW2
 """
