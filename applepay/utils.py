@@ -13,10 +13,8 @@ from itertools import ifilter
 import hashlib
 import logging
 
-from asn1crypto import cms
-from asn1crypto.parser import emit
-from ecdsa import VerifyingKey, BadSignatureError, curves
-from ecdsa.util import sigdecode_der
+from asn1crypto import cms, parser
+from ecdsa import VerifyingKey, BadSignatureError, curves, util
 from pytz import utc
 from OpenSSL import crypto
 
@@ -245,7 +243,7 @@ def get_ber_encoded_signed_attributes(signed_attrs):
     method = super(signed_attrs.__class__, signed_attrs).method
     tag = super(signed_attrs.__class__, signed_attrs).tag
 
-    return emit(class_, method, tag, signed_attrs.contents)
+    return parser.emit(class_, method, tag, signed_attrs.contents)
 
 
 def remove_ec_point_prefix(point):
@@ -419,7 +417,7 @@ def verify_signature(token, threshold=None):
     if not public_key_point:
         return False
 
-    sigdecode = sigdecode_der  # The signature is der-encoded
+    sigdecode = util.sigdecode_der  # The signature is der-encoded
     sig_octets = signer_info['signature'].native  # The actual signature to verify
     vk = VerifyingKey.from_string(public_key_point, curve=curves.NIST256p, hashfunc=hashfunc)
     # Verify that the signature matches the signed data.
