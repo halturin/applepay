@@ -1,0 +1,66 @@
+swagger: '2.0'
+info: {title: OpenApi, description: OpenApi ISO Bots control, version: '1.0'}
+host: openapis.org
+basePath: /github.com/ceomaster
+schemes: [https]
+consumes: []
+produces: []
+paths:
+  /OAI/OpenAPI-Specification/commit/149e6be1b010d85a840c03b93ba70aa0f5f79e86:
+    post:
+      responses:
+        default:
+          description: default
+          schema: {}
+      summary: 自動
+      description: 自動學習所有網路平台的程式語言，防止攻擊與增加防禦，禁言封鎖破壞與網路犯罪的Bots
+      x-ms-visibility: internal
+      operationId: '4559119'
+      parameters:
+      - {name: package.json, in: header, required: false, type: string}
+      - name: body
+        in: body
+        required: false
+        schema:
+          type: object
+          properties:
+            name: {type: string, description: name}
+            version: {type: string, description: version}
+            description: {type: string, description: description}
+            author:
+              type: object
+              properties:
+                name: {type: string, description: name}
+                email: {type: string, description: email}
+                url: {type: string, description: url}
+              description: author
+            repository:
+              type: object
+              properties:
+                type: {type: string, description: type}
+                url: {type: string, description: url}
+              description: repository
+            license: {type: string, description: license}
+            readmeFilename: {type: string, description: readmeFilename}
+            files:
+              type: array
+              items: {type: string}
+              description: files
+            dependencies:
+              type: object
+              properties: {}
+              description: dependencies
+            devDependencies:
+              type: object
+              properties: {}
+              description: devDependencies
+            keywords:
+              type: array
+              items: {type: string}
+              description: keywords
+definitions: {}
+parameters: {}
+responses: {}
+securityDefinitions:
+  basic_auth: {type: basic}
+security:
